@@ -29,13 +29,14 @@ class Message:
 
 # Basic neighbor class
 class Connection:
-    def __init__(self, node, reliability):
-        self.node = node
-        self.reliability = reliability
+    def __init__(self, thisNode, thatNode, distance):
+        self.node = thatNode
+        self.reliability = (thisNode.reliability + thatNode.reliability) / 2
+        self.distance = distance
 
 # Basic sensor node class
 class SensorNode:
-    def __init__(self, name, adjDict, bufferSize, power=1, powerDeplete=POWER_DEPLETE):
+    def __init__(self, name, adjDict, bufferSize, reliability, power=1, powerDeplete=POWER_DEPLETE):
         self.name = name
         # Neighbor initialization from adjacency list
         self.neighbors = []
@@ -45,6 +46,8 @@ class SensorNode:
         # Assign power
         self.power = power
         self.powerDeplete = powerDeplete
+        # Assign reliability
+        self.reliability = reliability
         # Set up buffer
         self.rxBuffer = []
         self.txBuffer = []
@@ -60,7 +63,7 @@ class SensorNode:
     def update_node(self):
         UP_DEBUG = 1
         # Update congestion information
-        self.congestion = float(len(self.rxBuffer)) / self.maxBufferSize
+        self.congestion = self.get_congestion()
         # Report stats first
         debug(UP_DEBUG, self.generate_stats())
         # If node has no power, it is dead
@@ -102,11 +105,13 @@ class SensorNode:
             #pdb.set_trace()
             nextHop = self._get_next_hop(m.path[-2] if len(m.path) >= 2 else m.path[-1]) 
             if nextHop is not None:
+                debug(TX_DEBUG, "TX: \t\tLink (" + self.name + "->" + nextHop.node.name \
+                     + ") with " + str(nextHop.reliability) + "% reliability...")
                 if random.random() <= nextHop.reliability:
-                    debug(TX_DEBUG, "TX: \t\tLink (" + self.name + "->" + nextHop.node.name + ") SUCCESS.")
+                    debug(TX_DEBUG, "TX: \t\t\t...SUCCESS.")
                     transmitSuccess = nextHop.node.receive(m)
                 else:
-                    debug(TX_DEBUG, "TX: \t\tLink (" + self.name + "->" + nextHop.node.name + ") FAILED.")
+                    debug(TX_DEBUG, "TX: \t\t\t...FAILED.")
                     transmitSuccess = False
                 debug(TX_DEBUG, "TX: \t\tMessage ('" + m.data + "') from " + self.name + " to " + nextHop.node.name + " : " + str(transmitSuccess))
                 debug(TX_DEBUG, "TX: \t\tPath: " + str(m.path))
@@ -156,7 +161,7 @@ class SensorNode:
         # For each node in this node's entry in the adjacency list
         for n in adjDict[self.name]:
             # Append a neighbor object
-            self.neighbors.append(Connection(self.nodeLookup[n[0]], n[1]))
+            self.neighbors.append(Connection(self, self.nodeLookup[n[0]], n[1]))
 
     # Get distance to sink
     def _get_shortest_hops(self):
@@ -181,7 +186,7 @@ class SensorNode:
             return None
     
     # Reinforcement learning
-    def generate_Q_value(self):
+    def generate_Q_value(self, depthLevel):
         # r = W_D * (1 - float(self.distance) / self.maxDistance) + \
         #     W_L * (1)
         pass

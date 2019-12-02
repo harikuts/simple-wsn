@@ -1,13 +1,21 @@
 #!/usr/bin/env
 
 # NODE_LIST = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "S"]
-NODE_LIST = ["A", "C", "D"]
+NODE_LIST = ["A", "B", "C", "D"]
+NODE_RELIABILITY = {}
+NODE_RELIABILITY["A"] = 0.84
+NODE_RELIABILITY["B"] = 0.68
+NODE_RELIABILITY["C"] = 0.72
+NODE_RELIABILITY["D"] = 0.67
+
 SINK = "SINK"
+SINK_RELIABILITY = 1.0
 
 EDGE_DICT = {}
-EDGE_DICT["A"] = [("SINK", 1.00), ("C", 0.75), ("D", 0.72)]
-EDGE_DICT["C"] = [("A", 0.75),]
-EDGE_DICT["D"] = [("A", 0.72)]
+EDGE_DICT["A"] = [(SINK, 18), ("C", 21), ("D", 17)]
+EDGE_DICT["B"] = [(SINK, 20), ("D", 24)]
+EDGE_DICT["C"] = [("A", 21), ("D", 5)]
+EDGE_DICT["D"] = [("A", 17), ("B", 20), ("C", 5)]
 EDGE_DICT["SINK"] = []
 
 SINK_BUFFER_SIZE = 2048

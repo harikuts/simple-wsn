@@ -22,14 +22,17 @@ def maybe_send_message(node, messageCounter):
 
 
 # Construct each node and the sink
-nodeLookup[model.SINK] = nc.SensorNode(model.SINK, model.EDGE_DICT, model.SINK_BUFFER_SIZE)
+nodeLookup[model.SINK] = nc.SensorNode(model.SINK, model.EDGE_DICT, model.SINK_BUFFER_SIZE, model.SINK_RELIABILITY)
 for node in model.NODE_LIST:
-    nodeLookup[node] = nc.SensorNode(node, model.EDGE_DICT, model.NODE_BUFFER_SIZE)
+    nodeLookup[node] = nc.SensorNode(node, model.EDGE_DICT, model.NODE_BUFFER_SIZE, model.NODE_RELIABILITY[node])
 
 # Build neighbors and edges
 for node in model.NODE_LIST:
     nodeLookup[node].add_neighbors(model.EDGE_DICT, nodeLookup)
 
+# pdb.set_trace()
+
+# Run simulation
 for step in range(model.STEPS):
     nc.debug(DEBUG, "~~~ STEP %08d ~~~" % (step))
     for node in model.NODE_LIST:
