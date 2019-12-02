@@ -148,7 +148,7 @@ class SensorNode:
     
     # Get congestion value (NOT COMPLETE)
     def get_congestion(self):
-         return (float(len(self.rxBuffer)) + float(len(self.rxBuffer))) \
+         return (float(len(self.rxBuffer)) + float(len(self.txBuffer))) \
               / (2 * self.maxBufferSize)
 
     # Power depletion function
