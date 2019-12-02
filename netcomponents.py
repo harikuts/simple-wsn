@@ -5,11 +5,14 @@ import pdb
 DEBUG = 1
 POWER_DEPLETE = 0.01
 
+INFINITY = 4096
+
 W_D = 0.25
 W_L = 0.25
 W_C = 0.25
 W_P = 0.25
 Q_DEPTH = 2
+DISCOUNT_RATE = 0.5
 
 # Debug command for development
 def debug(flag, message):
@@ -38,10 +41,11 @@ class Connection:
 class SensorNode:
     def __init__(self, name, adjDict, bufferSize, reliability, power=1, powerDeplete=POWER_DEPLETE):
         self.name = name
+        self.sinkName = "SINK"
         # Neighbor initialization from adjacency list
         self.neighbors = []
         # Calculate distance using Djikstra's for shortest number of hops
-        self.distance = 0
+        self.distance = INFINITY
         self.maxDistance = 1
         # Assign power
         self.power = power
@@ -53,26 +57,34 @@ class SensorNode:
         self.txBuffer = []
         self.maxBufferSize = bufferSize
         self.congestion = 0
+        # Set up Q-value
+        self.Q = 0
 
     # Report stats. Returns string.
-    def generate_stats(self):
-        return ("Node %s - PWR: %f | CON: %f | RX: %d | TX: %d" \
-            % (self.name, self.power, self.congestion, len(self.rxBuffer), len(self.txBuffer)))
+    def generate_stats(self, distanceWanted=False):
+        stats = ("Node %s - PWR: %f | CON: %f | RX: %d | TX: %d | Q: %f" \
+            % (self.name, self.power, self.congestion, \
+                len(self.rxBuffer), len(self.txBuffer), self.Q))
+        if distanceWanted:
+            stats = stats + " | DST: %d" % (self.distance)
+        return stats
 
     # Node update per step (NOT COMPLETE)
     def update_node(self):
         UP_DEBUG = 1
-        # Update congestion information
-        self.congestion = self.get_congestion()
-        # Report stats first
-        debug(UP_DEBUG, self.generate_stats())
         # If node has no power, it is dead
         if self.power <= 0:
             debug(UP_DEBUG, "UP: Node %s is dead. Cannot update." % (self.name))
             return
         debug(UP_DEBUG, "UP: Updating %s..." % (self.name))
+        # Update congestion information
+        self.congestion = self.get_congestion()
         # Deplete power
         self.consume_power()
+        # Generate Q value
+        self.Q = self.generate_Q_value()
+        # Report stats
+        debug(UP_DEBUG, self.generate_stats())
 
         # Process buffers
         if len(self.rxBuffer):
@@ -164,8 +176,40 @@ class SensorNode:
             self.neighbors.append(Connection(self, self.nodeLookup[n[0]], n[1]))
 
     # Get distance to sink
-    def _get_shortest_hops(self):
-        pass
+    def get_shortest_dist(self, sinkName, adjDict, prevHop=[]):
+        SD_DEBUG = 1
+        debug(SD_DEBUG, "Getting shortest route for %s given %s..." % (self.name, str(prevHop)))
+        # If sink is reached, return 0
+        if self.name == sinkName:
+            self.distance = 0
+            return self.distance
+        # Create list of viable neighbors
+        viableNeighbors = []
+        debug(SD_DEBUG, "%s\tAll neighbors: %s" % (self.name, str([n.node.name for n in self.neighbors])))
+        debug(SD_DEBUG, "%s\t\tAll distances: %s" % (self.name, str([n.distance for n in self.neighbors])))
+        for neighbor in self.neighbors:
+            if (neighbor.node.name not in prevHop):
+                viableNeighbors.append(neighbor)
+        debug(SD_DEBUG, "%s\t\tViable neighbors: %s" % (self.name, str([n.node.name for n in viableNeighbors])))
+        # If there's a dead end, return infinity
+        if len(viableNeighbors) == 0:
+            return INFINITY
+        # Get possible distances
+        possibleDists = []
+        for n in viableNeighbors:
+            distToNeighbor = n.distance
+            debug(SD_DEBUG, "%s\tDist. to %s: %d" % (self.name, n.node.name, n.distance))
+            possibleDists.append(distToNeighbor + \
+                n.node.get_shortest_dist(sinkName, adjDict, prevHop=prevHop+[self.name]))
+        debug(SD_DEBUG, "%s\tPossible dists. given %s: %s" % (self.name, str(prevHop), str(possibleDists)))
+        # If we're back at the top level of recursion, assign the distance
+        if len(prevHop) == 0:
+            self.distance = min(possibleDists + [self.distance])
+            debug(SD_DEBUG, "%s\t\tAssigning own dist. to sink: %d" % (self.name, self.distance))
+            return self.distance
+        # If we're still in the recursion, just return the min of possible distances
+        return min(possibleDists)
+
 
     # Get next hop (DUMMY FUNCTION for now)
     def _get_next_hop(self, prevHop):
@@ -186,7 +230,14 @@ class SensorNode:
             return None
     
     # Reinforcement learning
-    def generate_Q_value(self, depthLevel):
-        # r = W_D * (1 - float(self.distance) / self.maxDistance) + \
-        #     W_L * (1)
-        pass
+    def generate_Q_value(self, depthLevel=0):
+        if self.name == self.sinkName:
+            return 0
+        r = W_D * (1 - float(self.distance) / self.maxDistance) + \
+            W_L * (self.reliability) + \
+            W_C * (1 - self.congestion) + \
+            W_P * (self.power)
+        if depthLevel < Q_DEPTH:
+            return r + DISCOUNT_RATE * max([n.node.generate_Q_value(depthLevel=depthLevel+1) for n in self.neighbors])
+        else:
+            return r

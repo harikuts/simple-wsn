@@ -30,7 +30,19 @@ for node in model.NODE_LIST:
 for node in model.NODE_LIST:
     nodeLookup[node].add_neighbors(model.EDGE_DICT, nodeLookup)
 
-# pdb.set_trace()
+# Compute shortest distances
+nodeDistances = []
+for node in model.NODE_LIST:
+    nodeLookup[node].get_shortest_dist(model.SINK, model.EDGE_DICT)
+    nodeDistances.append(nodeLookup[node].distance)
+# Set max distances
+maxDistance = max(nodeDistances)
+for node in model.NODE_LIST:
+    nodeLookup[node].maxDistance = maxDistance
+    nc.debug(DEBUG, nodeLookup[node].generate_stats(distanceWanted=True))
+nc.debug(DEBUG, "Max distance: %d" % (maxDistance))
+
+pdb.set_trace()
 
 # Run simulation
 for step in range(model.STEPS):
