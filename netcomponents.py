@@ -16,7 +16,7 @@ DISCOUNT_RATE = 0.5
 
 ALPHA_RATE = 0.9
 BETA_RATE = 0.5
-HISTORY_WINDOW = 4
+HISTORY_WINDOW = 16
 MAX_LEARNED_REWARD = sum(ALPHA_RATE**i for i in [1] * HISTORY_WINDOW)
 
 # Debug command for development
@@ -80,7 +80,7 @@ class SensorNode:
 
     # Node update per step (NOT COMPLETE)
     def update_node(self):
-        UP_DEBUG = 1
+        UP_DEBUG = 0
         # If node has no power, it is dead
         if self.power <= 0:
             debug(UP_DEBUG, "UP: Node %s is dead. Cannot update." % (self.name))
@@ -121,7 +121,7 @@ class SensorNode:
     
     # Message transit update
     def transmit(self):
-        TX_DEBUG = 1
+        TX_DEBUG = 0
         # If node has no power, it is dead
         if self.power <= 0:
             debug(TX_DEBUG, "TX: Node %s is dead. Cannot transmit." % (self.name))
@@ -267,7 +267,7 @@ class SensorNode:
         # Return neighbor based on best inherent Q-value
         if len(viableNeighbors):
             # nextHopOptions = (sorted(viableNeighbors, key=(lambda x: x.node.Q)))
-            nextHopOptions = (sorted(viableNeighbors, key=(lambda x: x.node.Q + self.get_record(x.node.name))))
+            nextHopOptions = (sorted(viableNeighbors, key=(lambda x: x.node.Q * self.get_record(x.node.name))))
             for pn in nextHopOptions:
                 debug(NH_DEBUG, "NH:\t\t%s: %f %f" % (pn.node.name, pn.node.Q, self.get_record(pn.node.name)))
             nextHop = nextHopOptions[-1]
@@ -303,7 +303,7 @@ class SensorNode:
                 # learned_reward = sum([ALPHA_RATE^i * self.histories[n.node.name].reverse()[i] for i in range(len(self.histories[n.node.name]))])
                 learned_reward = self.get_record(n.node.name)
                 neighbor_Q = n.node.generate_Q_value_plus(depthLevel=depthLevel+1)
-                expected_rewards.append(learned_reward + neighbor_Q)
+                expected_rewards.append(learned_reward * neighbor_Q)
             return (1 - BETA_RATE) * v + BETA_RATE * max(expected_rewards)
         else:
             return v
