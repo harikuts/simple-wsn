@@ -12,11 +12,11 @@ nodeLookup = {}
 messageCounter = 0
 
 # Message generator
-def maybe_send_message(node, messageCounter):
+def maybe_send_message(node, messageCounter, ttl=1024):
     if random.random() < model.MESSAGE_SEND_RATE:
         message = "%08d" % (messageCounter)
         nc.debug(DEBUG, "Sending message [%s] from %s" % (message, node))
-        nodeLookup[node].send(message, model.SINK)
+        nodeLookup[node].send(message, model.SINK, ttl=ttl)
         messageCounter += 1
     return messageCounter
 
@@ -54,6 +54,6 @@ for step in range(model.STEPS + model.COOL_DOWN):
     for node in model.NODE_LIST:
         nodeLookup[node].update_node()
         if step < model.STEPS:
-            messageCounter = maybe_send_message(node, messageCounter)
+            messageCounter = maybe_send_message(node, messageCounter, ttl=maxDistance)
 nc.debug(1, "Successful messages: %d / %d ( %.2f%% )" % \
         (len(nodeLookup[model.SINK].rxBuffer), messageCounter, (float(len(nodeLookup[model.SINK].rxBuffer)) / messageCounter) * 100))

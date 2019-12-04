@@ -7,16 +7,16 @@ POWER_DEPLETE = 0.0015
 
 INFINITY = 4096
 
-W_D = 0.1
+W_D = 0.3
 W_L = 0.3
-W_C = 0.3
+W_C = 0.1
 W_P = 0.3
 Q_DEPTH = 2
 DISCOUNT_RATE = 0.5
 
-ALPHA_RATE = 0.8
-BETA_RATE = 0.25
-HISTORY_WINDOW = 16
+ALPHA_RATE = 0.9
+BETA_RATE = 0.5
+HISTORY_WINDOW = 4
 MAX_LEARNED_REWARD = sum(ALPHA_RATE**i for i in [1] * HISTORY_WINDOW)
 
 # Debug command for development
@@ -29,11 +29,12 @@ class Message:
     DELIVERED = 0
     SUCCESS = 1
     FAIL = 2
-    def __init__(self, src, dest, data):
+    def __init__(self, src, dest, data, ttl):
         self.src = src
         self.dest = dest
         self.data = data
         self.path = [src]
+        self.ttl = ttl
 
 # Basic neighbor class
 class Connection:
@@ -66,7 +67,7 @@ class SensorNode:
         self.histories = {}
         self.history = [1] * HISTORY_WINDOW
         # Set up Q-value
-        self.Q = 1 if self.name == self.sinkName else 0
+        self.Q = 2 if self.name == self.sinkName else 0
 
     # Report stats. Returns string.
     def generate_stats(self, distanceWanted=False):
@@ -99,9 +100,14 @@ class SensorNode:
         # Process buffers
         if len(self.rxBuffer):
             m = self.rxBuffer.pop(0)
+            # print(m.data, " ", m.ttl)
+            if m.ttl <= 0:
+                print("\nMESSAGE DIED LOL\n")
+                return
             # Check if message has reached destination
             if self.name == m.dest:
                 debug(UP_DEBUG, "UP: Destination reached.")
+                # print(m.data, " REACHED ", m.ttl)
                 pass
             # Move from rx to tx
             else:
@@ -118,7 +124,7 @@ class SensorNode:
         TX_DEBUG = 1
         # If node has no power, it is dead
         if self.power <= 0:
-            debug(TX_DEBUG, "UP: Node %s is dead. Cannot transmit." % (self.name))
+            debug(TX_DEBUG, "TX: Node %s is dead. Cannot transmit." % (self.name))
             return
         # Check node's TX to see if there is a message to be sent
         debug(TX_DEBUG, "TX: Processing %s's TX..." % (self.name))
@@ -129,6 +135,8 @@ class SensorNode:
             # Acquire the next hop, function returns a Connection object
             nextHop = self._get_next_hop(m.path[-2] if len(m.path) >= 2 else m.path[-1]) 
             if nextHop is not None:
+                # Decrease ttl
+                m.ttl = m.ttl - nextHop.distance
                 debug(TX_DEBUG, "TX: \t\tLink (" + self.name + "->" + nextHop.node.name \
                      + ") with " + str(nextHop.reliability) + " reliability...")
                 # Transmit message based on reliability (could be moved to another function at some point.)
@@ -169,8 +177,8 @@ class SensorNode:
             return False
 
     # Send a message originating at this node
-    def send(self, data, dest):
-        m = Message(self.name, dest, data)
+    def send(self, data, dest, ttl):
+        m = Message(self.name, dest, data, ttl=ttl)
         if len(self.txBuffer) < self.maxBufferSize:
             self.txBuffer.append(m)
             # Deplete power
@@ -246,7 +254,7 @@ class SensorNode:
 
     # Get next hop (DUMMY FUNCTION for now)
     def _get_next_hop(self, prevHop):
-        NH_DEBUG = 0
+        NH_DEBUG = 1
         debug(NH_DEBUG, "NH: Getting next hop for %s" % (self.name))
         # Create list of viable neighbors
         viableNeighbors = []
@@ -261,7 +269,7 @@ class SensorNode:
             # nextHopOptions = (sorted(viableNeighbors, key=(lambda x: x.node.Q)))
             nextHopOptions = (sorted(viableNeighbors, key=(lambda x: x.node.Q + self.get_record(x.node.name))))
             for pn in nextHopOptions:
-                debug(NH_DEBUG, "NH:\t\t%s: %f" % (pn.node.name, pn.node.Q))
+                debug(NH_DEBUG, "NH:\t\t%s: %f %f" % (pn.node.name, pn.node.Q, self.get_record(pn.node.name)))
             nextHop = nextHopOptions[-1]
             debug(NH_DEBUG, "NH: \t\tNext hop: %s" % (nextHop.node.name))
             return nextHop
