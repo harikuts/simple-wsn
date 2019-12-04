@@ -6,7 +6,7 @@ import netmodel as model
 import netcomponents as nc
 import random
 
-DEBUG = 1
+DEBUG = 0
 
 nodeLookup = {}
 messageCounter = 0
@@ -40,16 +40,20 @@ maxDistance = max(nodeDistances)
 for node in model.NODE_LIST:
     nodeLookup[node].maxDistance = maxDistance
     nc.debug(DEBUG, nodeLookup[node].generate_stats(distanceWanted=True))
+    for n in nodeLookup[node].neighbors:
+        nc.debug(DEBUG, "\t%s :: %s" % (n.node.name, str(nodeLookup[node].histories[n.node.name])))
 nc.debug(DEBUG, "Max distance: %d" % (maxDistance))
 
-pdb.set_trace()
+# pdb.set_trace()
 
 # Run simulation
-for step in range(model.STEPS):
-    nc.debug(DEBUG, "~~~ STEP %08d ~~~" % (step))
+for step in range(model.STEPS + model.COOL_DOWN):
+    nc.debug(1, "~~~ STEP %08d ~~~" % (step))
     for node in model.NODE_LIST:
         nodeLookup[node].transmit()
-        messageCounter = maybe_send_message(node, messageCounter)
     for node in model.NODE_LIST:
         nodeLookup[node].update_node()
-    nc.debug(DEBUG, "Successful messages: %d / %d" % (len(nodeLookup[model.SINK].rxBuffer), messageCounter))
+        if step < model.STEPS:
+            messageCounter = maybe_send_message(node, messageCounter)
+nc.debug(1, "Successful messages: %d / %d ( %.2f%% )" % \
+        (len(nodeLookup[model.SINK].rxBuffer), messageCounter, (float(len(nodeLookup[model.SINK].rxBuffer)) / messageCounter) * 100))

@@ -2,17 +2,22 @@
 import random
 import pdb
 
-DEBUG = 1
-POWER_DEPLETE = 0.01
+DEBUG = 0
+POWER_DEPLETE = 0.0015
 
 INFINITY = 4096
 
-W_D = 0.25
-W_L = 0.25
-W_C = 0.25
-W_P = 0.25
+W_D = 0.1
+W_L = 0.3
+W_C = 0.3
+W_P = 0.3
 Q_DEPTH = 2
 DISCOUNT_RATE = 0.5
+
+ALPHA_RATE = 0.8
+BETA_RATE = 0.25
+HISTORY_WINDOW = 16
+MAX_LEARNED_REWARD = sum(ALPHA_RATE**i for i in [1] * HISTORY_WINDOW)
 
 # Debug command for development
 def debug(flag, message):
@@ -57,8 +62,11 @@ class SensorNode:
         self.txBuffer = []
         self.maxBufferSize = bufferSize
         self.congestion = 0
+        # Maintain learned reward history
+        self.histories = {}
+        self.history = [1] * HISTORY_WINDOW
         # Set up Q-value
-        self.Q = 0
+        self.Q = 1 if self.name == self.sinkName else 0
 
     # Report stats. Returns string.
     def generate_stats(self, distanceWanted=False):
@@ -82,13 +90,15 @@ class SensorNode:
         # Deplete power
         self.consume_power()
         # Generate Q value
-        self.Q = self.generate_Q_value()
-        # Report stats
+        self.Q = self.generate_Q_value_plus()
+        # Report stats for everything
         debug(UP_DEBUG, self.generate_stats())
+        for n in self.neighbors:
+            debug(UP_DEBUG, "\t%s :: %s" % (n.node.name, str(self.histories[n.node.name])))
 
         # Process buffers
         if len(self.rxBuffer):
-            m = self.rxBuffer.pop()
+            m = self.rxBuffer.pop(0)
             # Check if message has reached destination
             if self.name == m.dest:
                 debug(UP_DEBUG, "UP: Destination reached.")
@@ -110,31 +120,39 @@ class SensorNode:
         if self.power <= 0:
             debug(TX_DEBUG, "UP: Node %s is dead. Cannot transmit." % (self.name))
             return
-        debug(TX_DEBUG, "TX: Checking %s's TX..." % (self.name))
+        # Check node's TX to see if there is a message to be sent
+        debug(TX_DEBUG, "TX: Processing %s's TX..." % (self.name))
         if len(self.txBuffer):
             debug(TX_DEBUG, "TX: \tTransmitting from %s..." % (self.name))
-            m = self.txBuffer.pop()
-            #pdb.set_trace()
+            # Pop the message off the buffer
+            m = self.txBuffer.pop(0)
+            # Acquire the next hop, function returns a Connection object
             nextHop = self._get_next_hop(m.path[-2] if len(m.path) >= 2 else m.path[-1]) 
             if nextHop is not None:
                 debug(TX_DEBUG, "TX: \t\tLink (" + self.name + "->" + nextHop.node.name \
-                     + ") with " + str(nextHop.reliability) + "% reliability...")
+                     + ") with " + str(nextHop.reliability) + " reliability...")
+                # Transmit message based on reliability (could be moved to another function at some point.)
                 if random.random() <= nextHop.reliability:
                     debug(TX_DEBUG, "TX: \t\t\t...SUCCESS.")
                     transmitSuccess = nextHop.node.receive(m)
+                    if transmitSuccess:
+                        debug(TX_DEBUG, "TX: \t\tMessage sent.")
+                    else:
+                        debug(TX_DEBUG, "TX: \t\tMessage still failed (error on receiving end).")
                 else:
                     debug(TX_DEBUG, "TX: \t\t\t...FAILED.")
                     transmitSuccess = False
-                debug(TX_DEBUG, "TX: \t\tMessage ('" + m.data + "') from " + self.name + " to " + nextHop.node.name + " : " + str(transmitSuccess))
-                debug(TX_DEBUG, "TX: \t\tPath: " + str(m.path))
+                debug(TX_DEBUG, "TX: \tMessage from " + self.name + " to " + nextHop.node.name + " : " + str(transmitSuccess))
+                # Record interaction for rewards
+                self.record_reward(nextHop.node.name, transmitSuccess)
                 # Deplete power, whether or not link is reached
                 self.consume_power()
             else:
-                debug(TX_DEBUG, "TX: \t\tNext-hop not available.")
+                debug(TX_DEBUG, "TX: \tNext-hop not available.")
     
     # Store into message buffer
     def receive(self, message):
-        RX_DEBUG = 1
+        RX_DEBUG = 0
         # If node has no power, it is dead
         if self.power <= 0:
             debug(RX_DEBUG, "UP: Node %s is dead. Cannot receive." % (self.name))
@@ -167,6 +185,20 @@ class SensorNode:
     def consume_power(self):
         self.power = max(0, self.power - self.powerDeplete)
 
+    # Record history
+    def record_reward(self, nodeName, success):
+        self.histories[nodeName].pop(0)
+        self.histories[nodeName].append(1 if success is True else 0)
+    
+    # Get record
+    def get_record(self, nodeName):
+        past_rewards = []
+        for i in range(len(self.histories[nodeName])):
+            past_reward = ALPHA_RATE**i * self.histories[nodeName][-i]
+            past_rewards.append(past_reward)
+        learned_reward = sum(past_rewards) / MAX_LEARNED_REWARD
+        return learned_reward
+
     # Construct neighbors list
     def add_neighbors(self, adjDict, nodeLookup):
         self.nodeLookup = nodeLookup
@@ -174,10 +206,11 @@ class SensorNode:
         for n in adjDict[self.name]:
             # Append a neighbor object
             self.neighbors.append(Connection(self, self.nodeLookup[n[0]], n[1]))
+            self.histories[n[0]] = [1] * HISTORY_WINDOW
 
     # Get distance to sink
     def get_shortest_dist(self, sinkName, adjDict, prevHop=[]):
-        SD_DEBUG = 1
+        SD_DEBUG = 0
         debug(SD_DEBUG, "Getting shortest route for %s given %s..." % (self.name, str(prevHop)))
         # If sink is reached, return 0
         if self.name == sinkName:
@@ -219,25 +252,50 @@ class SensorNode:
         viableNeighbors = []
         debug(NH_DEBUG, "NH: \tPrevious hop: %s" % (prevHop))
         for neighbor in self.neighbors:
-            debug(NH_DEBUG, "NH: \t\tChecking %s" % (neighbor.node.name))
+            # debug(NH_DEBUG, "NH: \t\tChecking %s" % (neighbor.node.name))
             if (neighbor.node.name is not prevHop):
                 viableNeighbors.append(neighbor)
         debug(NH_DEBUG, "NH: \tViable neighbors: %s" % (str([n.node.name for n in viableNeighbors])))
-        # Return first neighbor
+        # Return neighbor based on best inherent Q-value
         if len(viableNeighbors):
-            return(viableNeighbors[0])
+            # nextHopOptions = (sorted(viableNeighbors, key=(lambda x: x.node.Q)))
+            nextHopOptions = (sorted(viableNeighbors, key=(lambda x: x.node.Q + self.get_record(x.node.name))))
+            for pn in nextHopOptions:
+                debug(NH_DEBUG, "NH:\t\t%s: %f" % (pn.node.name, pn.node.Q))
+            nextHop = nextHopOptions[-1]
+            debug(NH_DEBUG, "NH: \t\tNext hop: %s" % (nextHop.node.name))
+            return nextHop
         else:
             return None
     
     # Reinforcement learning
-    def generate_Q_value(self, depthLevel=0):
+    def generate_Q_value_naive(self, depthLevel=0):
         if self.name == self.sinkName:
-            return 0
+            return 2
         r = W_D * (1 - float(self.distance) / self.maxDistance) + \
             W_L * (self.reliability) + \
             W_C * (1 - self.congestion) + \
             W_P * (self.power)
         if depthLevel < Q_DEPTH:
-            return r + DISCOUNT_RATE * max([n.node.generate_Q_value(depthLevel=depthLevel+1) for n in self.neighbors])
+            return r + DISCOUNT_RATE * max([n.node.generate_Q_value_naive(depthLevel=depthLevel+1) for n in self.neighbors])
         else:
             return r
+    
+    def generate_Q_value_plus(self, depthLevel=0):
+        if self.name == self.sinkName:
+            return 2
+        # Inherent perceived value
+        v = W_D * (1 - float(self.distance) / self.maxDistance) + \
+            W_L * (self.reliability) + \
+            W_C * (1 - self.congestion) + \
+            W_P * (self.power)
+        if depthLevel < Q_DEPTH:
+            expected_rewards = []
+            for n in self.neighbors:
+                # learned_reward = sum([ALPHA_RATE^i * self.histories[n.node.name].reverse()[i] for i in range(len(self.histories[n.node.name]))])
+                learned_reward = self.get_record(n.node.name)
+                neighbor_Q = n.node.generate_Q_value_plus(depthLevel=depthLevel+1)
+                expected_rewards.append(learned_reward + neighbor_Q)
+            return (1 - BETA_RATE) * v + BETA_RATE * max(expected_rewards)
+        else:
+            return v
