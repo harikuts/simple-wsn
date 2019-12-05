@@ -3,7 +3,7 @@ import random
 import pdb
 
 DEBUG = 0
-POWER_DEPLETE = 0.0015
+POWER_DEPLETE = 0.002
 
 INFINITY = 4096
 
@@ -11,13 +11,26 @@ W_D = 0.3
 W_L = 0.3
 W_C = 0.1
 W_P = 0.3
+
+# W_D = 0.0
+# W_L = 0.0
+# W_C = 0.0
+# W_P = 1.0
+
+# W_D = 0.25
+# W_L = 0.25
+# W_C = 0.25
+# W_P = 0.25
+
 Q_DEPTH = 2
 DISCOUNT_RATE = 0.5
 
 ALPHA_RATE = 0.9
-BETA_RATE = 0.5
+BETA_RATE = 0.25
 HISTORY_WINDOW = 16
-MAX_LEARNED_REWARD = sum(ALPHA_RATE**i for i in [1] * HISTORY_WINDOW)
+MAX_LEARNED_REWARD = sum([ALPHA_RATE**i for i in range(HISTORY_WINDOW)])
+
+LEARNING = False # Turn off for naive
 
 # Debug command for development
 def debug(flag, message):
@@ -71,9 +84,9 @@ class SensorNode:
 
     # Report stats. Returns string.
     def generate_stats(self, distanceWanted=False):
-        stats = ("Node %s - PWR: %f | CON: %f | RX: %d | TX: %d | Q: %f" \
+        stats = ("Node %s - PWR: %f | CON: %f | RX: %d | TX: %d" \
             % (self.name, self.power, self.congestion, \
-                len(self.rxBuffer), len(self.txBuffer), self.Q))
+                len(self.rxBuffer), len(self.txBuffer)))
         if distanceWanted:
             stats = stats + " | DST: %d" % (self.distance)
         return stats
@@ -91,11 +104,14 @@ class SensorNode:
         # Deplete power
         self.consume_power()
         # Generate Q value
-        self.Q = self.generate_Q_value_plus()
+        if LEARNING:
+            self.Q = self.generate_Q_value_plus()
+        else:
+            self.Q = self.generate_Q_value_naive()
         # Report stats for everything
         debug(UP_DEBUG, self.generate_stats())
-        for n in self.neighbors:
-            debug(UP_DEBUG, "\t%s :: %s" % (n.node.name, str(self.histories[n.node.name])))
+        # for n in self.neighbors:
+        #     debug(UP_DEBUG, "\t%s :: %s" % (n.node.name, str(self.histories[n.node.name])))
 
         # Process buffers
         if len(self.rxBuffer):
@@ -200,6 +216,8 @@ class SensorNode:
     
     # Get record
     def get_record(self, nodeName):
+        GR_DEBUG = 1
+        # debug(GR_DEBUG, str(self.histories[nodeName]))
         past_rewards = []
         for i in range(len(self.histories[nodeName])):
             past_reward = ALPHA_RATE**i * self.histories[nodeName][-i]
@@ -254,7 +272,7 @@ class SensorNode:
 
     # Get next hop (DUMMY FUNCTION for now)
     def _get_next_hop(self, prevHop):
-        NH_DEBUG = 1
+        NH_DEBUG = 0
         debug(NH_DEBUG, "NH: Getting next hop for %s" % (self.name))
         # Create list of viable neighbors
         viableNeighbors = []
@@ -266,10 +284,16 @@ class SensorNode:
         debug(NH_DEBUG, "NH: \tViable neighbors: %s" % (str([n.node.name for n in viableNeighbors])))
         # Return neighbor based on best inherent Q-value
         if len(viableNeighbors):
-            # nextHopOptions = (sorted(viableNeighbors, key=(lambda x: x.node.Q)))
-            nextHopOptions = (sorted(viableNeighbors, key=(lambda x: x.node.Q * self.get_record(x.node.name))))
+            debug(NH_DEBUG, "NH: \tQ-values: %s" % (str(self.Q)))
+            if LEARNING:
+                nextHopOptions = (sorted(viableNeighbors, key=(lambda x: self.Q[x.node.name])))
+            else:
+                nextHopOptions = (sorted(viableNeighbors, key=(lambda x: x.node.Q)))
             for pn in nextHopOptions:
-                debug(NH_DEBUG, "NH:\t\t%s: %f %f" % (pn.node.name, pn.node.Q, self.get_record(pn.node.name)))
+                if LEARNING:
+                    debug(NH_DEBUG, "NH:\t\t%s: %f %f" % (pn.node.name, self.Q[pn.node.name], self.get_record(pn.node.name)))
+                else:
+                    debug(NH_DEBUG, "NH:\t\t%s: %f %f" % (pn.node.name, pn.node.Q, self.get_record(pn.node.name)))
             nextHop = nextHopOptions[-1]
             debug(NH_DEBUG, "NH: \t\tNext hop: %s" % (nextHop.node.name))
             return nextHop
@@ -290,20 +314,25 @@ class SensorNode:
             return r
     
     def generate_Q_value_plus(self, depthLevel=0):
+        GQ_DEBUG = 0
         if self.name == self.sinkName:
-            return 2
-        # Inherent perceived value
-        v = W_D * (1 - float(self.distance) / self.maxDistance) + \
-            W_L * (self.reliability) + \
-            W_C * (1 - self.congestion) + \
-            W_P * (self.power)
-        if depthLevel < Q_DEPTH:
-            expected_rewards = []
-            for n in self.neighbors:
-                # learned_reward = sum([ALPHA_RATE^i * self.histories[n.node.name].reverse()[i] for i in range(len(self.histories[n.node.name]))])
-                learned_reward = self.get_record(n.node.name)
-                neighbor_Q = n.node.generate_Q_value_plus(depthLevel=depthLevel+1)
-                expected_rewards.append(learned_reward * neighbor_Q)
-            return (1 - BETA_RATE) * v + BETA_RATE * max(expected_rewards)
-        else:
-            return v
+            return {self.name: 4}
+        Q = {}
+        for n in self.neighbors:
+            if n.node.name == self.sinkName:
+                Q[n.node.name] = 2
+            # Inherent perceived value
+            inherent_value = W_D * (1 - float(n.node.distance) / self.maxDistance) + \
+                W_L * (n.reliability) + \
+                W_C * (1 - n.node.congestion) + \
+                W_P * (n.node.power)
+            # Learned reward value
+            learned_reward = self.get_record(n.node.name)
+            if depthLevel < Q_DEPTH:
+                debug(GQ_DEBUG, "%s->%s" % (self.name, n.node.name))
+                max_expected_reward = max(n.node.generate_Q_value_plus(depthLevel=depthLevel+1).values())
+                Q_val = (1 - BETA_RATE) * inherent_value + BETA_RATE * (learned_reward + DISCOUNT_RATE * max_expected_reward)
+            else:
+                Q_val = (1 - BETA_RATE) * inherent_value + BETA_RATE * learned_reward
+            Q[n.node.name] = Q_val
+        return Q

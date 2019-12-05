@@ -50,9 +50,9 @@ nc.debug(DEBUG, "Max distance: %d" % (maxDistance))
 for step in range(model.STEPS + model.COOL_DOWN):
     nc.debug(1, "~~~ STEP %08d ~~~" % (step))
     for node in model.NODE_LIST:
-        nodeLookup[node].transmit()
-    for node in model.NODE_LIST:
         nodeLookup[node].update_node()
+    for node in model.NODE_LIST:
+        nodeLookup[node].transmit()
         if step < model.STEPS:
             messageCounter = maybe_send_message(node, messageCounter, ttl=maxDistance)
 nc.debug(1, "Successful messages: %d / %d ( %.2f%% )" % \
