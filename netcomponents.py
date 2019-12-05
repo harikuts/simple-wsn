@@ -3,7 +3,7 @@ import random
 import pdb
 
 DEBUG = 0
-POWER_DEPLETE = 0.002
+POWER_DEPLETE = 0.0002
 
 INFINITY = 4096
 
@@ -27,10 +27,11 @@ DISCOUNT_RATE = 0.5
 
 ALPHA_RATE = 0.9
 BETA_RATE = 0.25
+ZETA_RATE = 0.75
 HISTORY_WINDOW = 16
 MAX_LEARNED_REWARD = sum([ALPHA_RATE**i for i in range(HISTORY_WINDOW)])
 
-LEARNING = False # Turn off for naive
+LEARNING = True # Turn off for naive
 
 # Debug command for development
 def debug(flag, message):
@@ -81,6 +82,8 @@ class SensorNode:
         self.history = [1] * HISTORY_WINDOW
         # Set up Q-value
         self.Q = 2 if self.name == self.sinkName else 0
+        if LEARNING:
+            self.Q = {}
 
     # Report stats. Returns string.
     def generate_stats(self, distanceWanted=False):
@@ -93,7 +96,7 @@ class SensorNode:
 
     # Node update per step (NOT COMPLETE)
     def update_node(self):
-        UP_DEBUG = 0
+        UP_DEBUG = 1
         # If node has no power, it is dead
         if self.power <= 0:
             debug(UP_DEBUG, "UP: Node %s is dead. Cannot update." % (self.name))
@@ -114,6 +117,7 @@ class SensorNode:
         #     debug(UP_DEBUG, "\t%s :: %s" % (n.node.name, str(self.histories[n.node.name])))
 
         # Process buffers
+        RX_DEBUG = 0
         if len(self.rxBuffer):
             m = self.rxBuffer.pop(0)
             # print(m.data, " ", m.ttl)
@@ -122,17 +126,17 @@ class SensorNode:
                 return
             # Check if message has reached destination
             if self.name == m.dest:
-                debug(UP_DEBUG, "UP: Destination reached.")
+                debug(RX_DEBUG, "RX: Destination reached.")
                 # print(m.data, " REACHED ", m.ttl)
                 pass
             # Move from rx to tx
             else:
                 if len(self.txBuffer) < self.maxBufferSize:
-                    debug(UP_DEBUG, "UP: Moving message from RX to TX.")
+                    debug(RX_DEBUG, "RX: Moving message from RX to TX.")
                     self.txBuffer.append(m)
                     self.consume_power()
                 else:
-                    debug(UP_DEBUG, "UP: TX buffer is full.")
+                    debug(RX_DEBUG, "RX: TX buffer is full.")
             m.path.append(self.name)
     
     # Message transit update
@@ -233,6 +237,9 @@ class SensorNode:
             # Append a neighbor object
             self.neighbors.append(Connection(self, self.nodeLookup[n[0]], n[1]))
             self.histories[n[0]] = [1] * HISTORY_WINDOW
+            if LEARNING:
+                self.Q[n[0]] = 2 if n[0] == self.sinkName else 0
+                debug(0, "Node %s: Q['%s']" % (self.name, n))
 
     # Get distance to sink
     def get_shortest_dist(self, sinkName, adjDict, prevHop=[]):
@@ -334,5 +341,5 @@ class SensorNode:
                 Q_val = (1 - BETA_RATE) * inherent_value + BETA_RATE * (learned_reward + DISCOUNT_RATE * max_expected_reward)
             else:
                 Q_val = (1 - BETA_RATE) * inherent_value + BETA_RATE * learned_reward
-            Q[n.node.name] = Q_val
+            Q[n.node.name] = (1 - ZETA_RATE) * self.Q[n.node.name] + ZETA_RATE * Q_val
         return Q
