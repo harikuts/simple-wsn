@@ -25,13 +25,27 @@ W_P = 0.3
 Q_DEPTH = 2
 DISCOUNT_RATE = 0.5
 
+# DETERMINISTIC (FOR VALIDATION) : LEARNING = False (RUN INDIVIDUAL OPTIMIZATIONS HERE)
+# LEARNING : BETA <= 0.5 (= 0.3)
+# ... LEARNING WITH REWARD HISTORY: ALPHA_RATE > 0
+# ...... COMPLETE REMEMBRANCE (ALL HISTORY IS VIEWED THE SAME): ALPHA_RATE = 1.0
+# ...... SLOW-DECAYING REMEMBRANCE: ALPHA_RATE = 0.8
+# ...... WITHOUT REWARD HISTORY (ALPHA_RATE = 0.0)
+# REINFORCEMENT LEARNING : ZETA < 1.0 (= 0.75)
+# ... COMPLETE REINFORCEMENT LEARNING  : BETA_RATE = 1.0
+# ...... DECAYING REMEMBRANCE: ALPHA_RATE = 0.5
+# ...... NO REMEMBRANCE: ALPHA_RATE = 0
+# ... HYBRID REINFORCEMENT LEARNING : BETA_RATE <= 0.5 (= 0.3)
+# ...... DECAYING REMEMBRANCE: ALPHA_RATE = 0.5
+# ...... NO REMEMBRANCE: ALPHA_RATE = 0
+
 ALPHA_RATE = 0.9
 BETA_RATE = 0.25
 ZETA_RATE = 0.75
 HISTORY_WINDOW = 16
 MAX_LEARNED_REWARD = sum([ALPHA_RATE**i for i in range(HISTORY_WINDOW)])
 
-LEARNING = True # Turn off for naive
+LEARNING = False # Turn off for naive
 
 # Debug command for development
 def debug(flag, message):
@@ -96,7 +110,7 @@ class SensorNode:
 
     # Node update per step (NOT COMPLETE)
     def update_node(self):
-        UP_DEBUG = 1
+        UP_DEBUG = 0
         # If node has no power, it is dead
         if self.power <= 0:
             debug(UP_DEBUG, "UP: Node %s is dead. Cannot update." % (self.name))
@@ -150,18 +164,20 @@ class SensorNode:
         debug(TX_DEBUG, "TX: Processing %s's TX..." % (self.name))
         if len(self.txBuffer):
             debug(TX_DEBUG, "TX: \tTransmitting from %s..." % (self.name))
-            # Pop the message off the buffer
-            m = self.txBuffer.pop(0)
+            # Peek at the message off the buffer
+            m = self.txBuffer[0]
             # Acquire the next hop, function returns a Connection object
             nextHop = self._get_next_hop(m.path[-2] if len(m.path) >= 2 else m.path[-1]) 
             if nextHop is not None:
-                # Decrease ttl
-                m.ttl = m.ttl - nextHop.distance
                 debug(TX_DEBUG, "TX: \t\tLink (" + self.name + "->" + nextHop.node.name \
                      + ") with " + str(nextHop.reliability) + " reliability...")
                 # Transmit message based on reliability (could be moved to another function at some point.)
                 if random.random() <= nextHop.reliability:
                     debug(TX_DEBUG, "TX: \t\t\t...SUCCESS.")
+                    # If connection is reliable then pop from buffer
+                    m = self.txBuffer.pop(0)
+                    # Decrease ttl
+                    m.ttl = m.ttl - nextHop.distance
                     transmitSuccess = nextHop.node.receive(m)
                     if transmitSuccess:
                         debug(TX_DEBUG, "TX: \t\tMessage sent.")
