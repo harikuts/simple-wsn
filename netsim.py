@@ -11,7 +11,7 @@ DEBUG = 0
 nodeLookup = {}
 messageCounter = 0
 
-# Message generator
+# Message generator (random probability message generator, given rate)
 def maybe_send_message(node, messageCounter, ttl=1024):
     if random.random() < model.MESSAGE_SEND_RATE:
         message = "%08d" % (messageCounter)
@@ -49,11 +49,15 @@ nc.debug(DEBUG, "Max distance: %d" % (maxDistance))
 # Run simulation
 for step in range(model.STEPS + model.COOL_DOWN):
     nc.debug(1, "~~~ STEP %08d ~~~" % (step))
+    # Update each node
     for node in model.NODE_LIST:
         nodeLookup[node].update_node()
+    # Transmit each node (buffer interactions)
     for node in model.NODE_LIST:
         nodeLookup[node].transmit()
+        # Unless we're in cooldown, send message (pseudo-periodically)
         if step < model.STEPS:
             messageCounter = maybe_send_message(node, messageCounter, ttl=maxDistance)
+# Report results of simulation.
 nc.debug(1, "Successful messages: %d / %d ( %.2f%% )" % \
         (len(nodeLookup[model.SINK].rxBuffer), messageCounter, (float(len(nodeLookup[model.SINK].rxBuffer)) / messageCounter) * 100))
