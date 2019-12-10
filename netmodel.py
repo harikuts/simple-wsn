@@ -1,6 +1,6 @@
 #!/usr/bin/env
 
-# NODE_LIST = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "S"]
+# Provide network graph with inherent reliability values
 NODE_LIST = ["A", "B", "C", "D", "E", "F", "G", "H", "I"]
 NODE_RELIABILITY = {}
 NODE_RELIABILITY["A"] = 0.91
@@ -13,9 +13,11 @@ NODE_RELIABILITY["G"] = 0.71
 NODE_RELIABILITY["H"] = 0.92
 NODE_RELIABILITY["I"] = 0.81
 
+# Set up sink
 SINK = "SINK"
 SINK_RELIABILITY = 1.0
 
+# Set up edges and distances along those edges
 EDGE_DICT = {}
 EDGE_DICT["A"] = [(SINK, 20), ("B", 8), ("C", 32), ("D", 17), ("E", 17), ("F", 17)]
 EDGE_DICT["B"] = [(SINK, 8), ("A", 17), ("G", 39), ("C", 12)]
@@ -28,9 +30,9 @@ EDGE_DICT["H"] = [("C", 28), ("D", 30), ("E", 38), ("G", 12), ("I", 12)]
 EDGE_DICT["I"] = [("D", 24), ("E", 12), ("F", 12), ("H", 12)]
 EDGE_DICT["SINK"] = []
 
-SINK_BUFFER_SIZE = 2048
-NODE_BUFFER_SIZE = 4
+SINK_BUFFER_SIZE = 20000
+NODE_BUFFER_SIZE = 2
 
-MESSAGE_SEND_RATE = float(2.0 / len(NODE_LIST))
+MESSAGE_SEND_RATE = float(1.75 / len(NODE_LIST))
 STEPS = 2000
 COOL_DOWN = 200

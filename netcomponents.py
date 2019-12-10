@@ -3,7 +3,7 @@ import random
 import pdb
 
 DEBUG = 0
-POWER_DEPLETE = 0.0002
+POWER_DEPLETE = 0.0003
 
 INFINITY = 4096
 
@@ -14,8 +14,8 @@ W_P = 0.3
 
 # W_D = 0.0
 # W_L = 0.0
-# W_C = 0.0
-# W_P = 1.0
+# W_C = 1.0
+# W_P = 0.0
 
 # W_D = 0.25
 # W_L = 0.25
@@ -39,13 +39,13 @@ DISCOUNT_RATE = 0.5
 # ...... DECAYING REMEMBRANCE: ALPHA_RATE = 0.5
 # ...... NO REMEMBRANCE: ALPHA_RATE = 0
 
-ALPHA_RATE = 0.9
-BETA_RATE = 0.25
-ZETA_RATE = 0.75
+ALPHA_RATE = 1.0
+BETA_RATE = 0.3
+ZETA_RATE = 0.0
 HISTORY_WINDOW = 16
 MAX_LEARNED_REWARD = sum([ALPHA_RATE**i for i in range(HISTORY_WINDOW)])
 
-LEARNING = False # Turn off for naive
+LEARNING = True # Turn off for naive
 
 # Debug command for development
 def debug(flag, message):
@@ -62,6 +62,7 @@ class Message:
         self.dest = dest
         self.data = data
         self.path = [src]
+        # TTL is subtracted from at each hop
         self.ttl = ttl
 
 # Basic neighbor class
@@ -110,7 +111,7 @@ class SensorNode:
 
     # Node update per step (NOT COMPLETE)
     def update_node(self):
-        UP_DEBUG = 0
+        UP_DEBUG = 1
         # If node has no power, it is dead
         if self.power <= 0:
             debug(UP_DEBUG, "UP: Node %s is dead. Cannot update." % (self.name))
@@ -131,7 +132,7 @@ class SensorNode:
         #     debug(UP_DEBUG, "\t%s :: %s" % (n.node.name, str(self.histories[n.node.name])))
 
         # Process buffers
-        RX_DEBUG = 0
+        RX_DEBUG = 1
         if len(self.rxBuffer):
             m = self.rxBuffer.pop(0)
             # print(m.data, " ", m.ttl)
@@ -155,7 +156,7 @@ class SensorNode:
     
     # Message transit update
     def transmit(self):
-        TX_DEBUG = 0
+        TX_DEBUG = 1
         # If node has no power, it is dead
         if self.power <= 0:
             debug(TX_DEBUG, "TX: Node %s is dead. Cannot transmit." % (self.name))
@@ -165,7 +166,8 @@ class SensorNode:
         if len(self.txBuffer):
             debug(TX_DEBUG, "TX: \tTransmitting from %s..." % (self.name))
             # Peek at the message off the buffer
-            m = self.txBuffer[0]
+            # m = self.txBuffer[0]
+            m = self.txBuffer.pop(0)
             # Acquire the next hop, function returns a Connection object
             nextHop = self._get_next_hop(m.path[-2] if len(m.path) >= 2 else m.path[-1]) 
             if nextHop is not None:
@@ -175,7 +177,7 @@ class SensorNode:
                 if random.random() <= nextHop.reliability:
                     debug(TX_DEBUG, "TX: \t\t\t...SUCCESS.")
                     # If connection is reliable then pop from buffer
-                    m = self.txBuffer.pop(0)
+                    # m = self.txBuffer.pop(0)
                     # Decrease ttl
                     m.ttl = m.ttl - nextHop.distance
                     transmitSuccess = nextHop.node.receive(m)
@@ -196,7 +198,7 @@ class SensorNode:
     
     # Store into message buffer
     def receive(self, message):
-        RX_DEBUG = 0
+        RX_DEBUG = 1
         # If node has no power, it is dead
         if self.power <= 0:
             debug(RX_DEBUG, "UP: Node %s is dead. Cannot receive." % (self.name))
@@ -234,7 +236,7 @@ class SensorNode:
         self.histories[nodeName].pop(0)
         self.histories[nodeName].append(1 if success is True else 0)
     
-    # Get record
+    # Get the learned reward based on the current experience history
     def get_record(self, nodeName):
         GR_DEBUG = 1
         # debug(GR_DEBUG, str(self.histories[nodeName]))
@@ -257,7 +259,7 @@ class SensorNode:
                 self.Q[n[0]] = 2 if n[0] == self.sinkName else 0
                 debug(0, "Node %s: Q['%s']" % (self.name, n))
 
-    # Get distance to sink
+    # Get distance to sink (Djikstra's, unoptimized)
     def get_shortest_dist(self, sinkName, adjDict, prevHop=[]):
         SD_DEBUG = 0
         debug(SD_DEBUG, "Getting shortest route for %s given %s..." % (self.name, str(prevHop)))
@@ -293,9 +295,9 @@ class SensorNode:
         return min(possibleDists)
 
 
-    # Get next hop (DUMMY FUNCTION for now)
+    # Get next hop based on Q-learning or naive approach
     def _get_next_hop(self, prevHop):
-        NH_DEBUG = 0
+        NH_DEBUG = 1
         debug(NH_DEBUG, "NH: Getting next hop for %s" % (self.name))
         # Create list of viable neighbors
         viableNeighbors = []
@@ -323,7 +325,7 @@ class SensorNode:
         else:
             return None
     
-    # Reinforcement learning
+    # Naive Deterministic Approach (SAdaR-D)
     def generate_Q_value_naive(self, depthLevel=0):
         if self.name == self.sinkName:
             return 2
@@ -336,11 +338,14 @@ class SensorNode:
         else:
             return r
     
+    # Simple Decision Approach and Q-Learning Approach (SAdaR-SD: zeta = 1.0, SAdaR-RL: zeta < 1.0)
     def generate_Q_value_plus(self, depthLevel=0):
         GQ_DEBUG = 0
+        # If we're dealing with the sink, assign arbitrary value higher than max achievable Q-value
         if self.name == self.sinkName:
             return {self.name: 4}
         Q = {}
+        # For each neighbor, calculate...
         for n in self.neighbors:
             if n.node.name == self.sinkName:
                 Q[n.node.name] = 2
@@ -354,6 +359,7 @@ class SensorNode:
             if depthLevel < Q_DEPTH:
                 debug(GQ_DEBUG, "%s->%s" % (self.name, n.node.name))
                 max_expected_reward = max(n.node.generate_Q_value_plus(depthLevel=depthLevel+1).values())
+                # Maximum Expected Future Reward
                 Q_val = (1 - BETA_RATE) * inherent_value + BETA_RATE * (learned_reward + DISCOUNT_RATE * max_expected_reward)
             else:
                 Q_val = (1 - BETA_RATE) * inherent_value + BETA_RATE * learned_reward
